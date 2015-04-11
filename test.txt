@@ -1,0 +1,2 @@
+Hello GoLang !
+So cool ! I have my own webserver already
