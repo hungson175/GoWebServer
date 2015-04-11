@@ -1,9 +1,11 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"net/http"
+	"regexp"
 	"text/template"
 )
 
@@ -23,13 +25,27 @@ func loadPage(title string) (*Page, error) {
 	return &Page{Title: title, Body: body}, err
 }
 
+var validPath = regexp.MustCompile("^/(view|edit|save)/([a-zA-Z0-9]+)$")
+
+func getTitle(rw http.ResponseWriter, req *http.Request) (string, error) {
+	m := validPath.FindStringSubmatch(req.URL.Path)
+	if m == nil {
+		http.NotFound(rw, req)
+		return "", errors.New("Invalid Page URL")
+	}
+	return m[2], nil
+}
 func handler(rw http.ResponseWriter, req *http.Request) {
 	fmt.Fprintf(rw, "Hi there, I love %s!", req.URL.Path[1:])
 }
 
 func controllerHandler(rw http.ResponseWriter, req *http.Request, controllerName string, errHandler ControllerErrorHandler) {
 	//TODO: make errHandler pointer
-	title := req.URL.Path[len("/"+controllerName+"/"):]
+	title, err := getTitle(rw, req)
+	if err != nil {
+		return
+	}
+
 	p, err := loadPage(title)
 	fmt.Printf("Controller %s Error=%v\n", controllerName, err)
 	success := errHandler.handle(err, p, title)
@@ -52,31 +68,25 @@ func (v ViewErrorHandler) handle(err error, p *Page, title string) bool {
 	return true
 }
 
-func viewHandler(rw http.ResponseWriter, req *http.Request) {
-	// title := req.URL.Path[len("/view/"):]
-	// p, err := loadPage(title)
-	// if err != nil {
-	// 	http.Redirect(rw, req, "/edit/"+title, http.StatusFound)
-	// 	return
-	// }
-	// renderTemplate(rw, "view", p)
-	vh := ViewErrorHandler{rw, req}
-	controllerHandler(rw, req, "view", vh)
+func viewHandler(rw http.ResponseWriter, req *http.Request, title string) {
+	p, err := loadPage(title)
+	if err != nil {
+		http.Redirect(rw, req, "/edit/"+title, http.StatusFound)
+		return
+	}
+	renderTemplate(rw, "view", p)
 }
 
 type ControllerErrorHandler interface {
 	handle(error, *Page, string) bool
 }
 
-func editHandler(rw http.ResponseWriter, req *http.Request) {
-	// title := req.URL.Path[len("/edit/"):]
-	// p, err := loadPage(title)
-	// if err != nil {
-	// 	p = &Page{Title: title}
-	// }
-	// renderTemplate(rw, "edit", p)
-	eh := EditErrorHandler{}
-	controllerHandler(rw, req, "edit", eh)
+func editHandler(rw http.ResponseWriter, req *http.Request, title string) {
+	p, err := loadPage(title)
+	if err != nil {
+		p = &Page{Title: title}
+	}
+	renderTemplate(rw, "edit", p)
 }
 
 type EditErrorHandler struct{}
@@ -89,8 +99,7 @@ func (eh EditErrorHandler) handle(err error, p *Page, title string) bool {
 	return true
 }
 
-func saveHandler(rw http.ResponseWriter, req *http.Request) {
-	title := req.URL.Path[len("/save/"):]
+func saveHandler(rw http.ResponseWriter, req *http.Request, title string) {
 	p := &Page{Title: title}
 	p.Body = []byte(req.FormValue("body"))
 	err := p.save()
@@ -110,10 +119,20 @@ func renderTemplate(rw http.ResponseWriter, controllerName string, p *Page) {
 
 var templates = template.Must(template.ParseFiles("edit.html", "view.html"))
 
+func makeHandler(fn func(http.ResponseWriter, *http.Request, string)) http.HandlerFunc {
+	return func(rw http.ResponseWriter, req *http.Request) {
+		m := validPath.FindStringSubmatch(req.URL.Path)
+		if m == nil {
+			http.NotFound(rw, req)
+			return
+		}
+		fn(rw, req, m[2])
+	}
+}
 func main() {
-	http.HandleFunc("/save/", saveHandler)
-	http.HandleFunc("/edit/", editHandler)
-	http.HandleFunc("/view/", viewHandler)
+	http.HandleFunc("/save/", makeHandler(saveHandler))
+	http.HandleFunc("/edit/", makeHandler(editHandler))
+	http.HandleFunc("/view/", makeHandler(viewHandler))
 
 	http.ListenAndServe(":8080", nil)
 }
