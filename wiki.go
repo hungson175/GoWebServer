@@ -27,23 +27,66 @@ func handler(rw http.ResponseWriter, req *http.Request) {
 	fmt.Fprintf(rw, "Hi there, I love %s!", req.URL.Path[1:])
 }
 
-func viewHandler(rw http.ResponseWriter, req *http.Request) {
-	title := req.URL.Path[len("/view/"):]
+func controllerHandler(rw http.ResponseWriter, req *http.Request, controllerName string, errHandler ControllerErrorHandler) {
+	//TODO: make errHandler pointer
+	title := req.URL.Path[len("/"+controllerName+"/"):]
 	p, err := loadPage(title)
-	if err != nil {
-		http.Redirect(rw, req, "/edit/"+title, http.StatusFound)
+	fmt.Printf("Controller %s Error=%v\n", controllerName, err)
+	success := errHandler.handle(err, p, title)
+	if !success {
 		return
 	}
-	renderTemplate(rw, "view", p)
+	renderTemplate(rw, controllerName, p)
+}
+
+type ViewErrorHandler struct {
+	rw  http.ResponseWriter
+	req *http.Request
+}
+
+func (v ViewErrorHandler) handle(err error, p *Page, title string) bool {
+	if err != nil {
+		http.Redirect(v.rw, v.req, "/edit/"+title, http.StatusFound)
+		return false
+	}
+	return true
+}
+
+func viewHandler(rw http.ResponseWriter, req *http.Request) {
+	// title := req.URL.Path[len("/view/"):]
+	// p, err := loadPage(title)
+	// if err != nil {
+	// 	http.Redirect(rw, req, "/edit/"+title, http.StatusFound)
+	// 	return
+	// }
+	// renderTemplate(rw, "view", p)
+	vh := ViewErrorHandler{rw, req}
+	controllerHandler(rw, req, "view", vh)
+}
+
+type ControllerErrorHandler interface {
+	handle(error, *Page, string) bool
 }
 
 func editHandler(rw http.ResponseWriter, req *http.Request) {
-	title := req.URL.Path[len("/edit/"):]
-	p, err := loadPage(title)
+	// title := req.URL.Path[len("/edit/"):]
+	// p, err := loadPage(title)
+	// if err != nil {
+	// 	p = &Page{Title: title}
+	// }
+	// renderTemplate(rw, "edit", p)
+	eh := EditErrorHandler{}
+	controllerHandler(rw, req, "edit", eh)
+}
+
+type EditErrorHandler struct{}
+
+func (eh EditErrorHandler) handle(err error, p *Page, title string) bool {
+	//TODO: make this as pointer receiver
 	if err != nil {
 		p = &Page{Title: title}
 	}
-	renderTemplate(rw, "edit", p)
+	return true
 }
 
 func saveHandler(rw http.ResponseWriter, req *http.Request) {
@@ -59,7 +102,7 @@ func saveHandler(rw http.ResponseWriter, req *http.Request) {
 }
 
 func renderTemplate(rw http.ResponseWriter, controllerName string, p *Page) {
-	err := templates.ExecuteTemplate(rw, controllerName+".txt", p)
+	err := templates.ExecuteTemplate(rw, controllerName+".html", p)
 	if err != nil {
 		http.Error(rw, err.Error(), http.StatusInternalServerError)
 	}
