@@ -34,7 +34,7 @@ func viewHandler(rw http.ResponseWriter, req *http.Request) {
 		http.Redirect(rw, req, "/edit/"+title, http.StatusFound)
 		return
 	}
-	renderTemplate(rw, "view.html", p)
+	renderTemplate(rw, "view", p)
 }
 
 func editHandler(rw http.ResponseWriter, req *http.Request) {
@@ -43,21 +43,29 @@ func editHandler(rw http.ResponseWriter, req *http.Request) {
 	if err != nil {
 		p = &Page{Title: title}
 	}
-	renderTemplate(rw, "edit.html", p)
+	renderTemplate(rw, "edit", p)
 }
 
 func saveHandler(rw http.ResponseWriter, req *http.Request) {
 	title := req.URL.Path[len("/save/"):]
 	p := &Page{Title: title}
 	p.Body = []byte(req.FormValue("body"))
-	p.save()
+	err := p.save()
+	if err != nil {
+		http.Error(rw, err.Error(), http.StatusInternalServerError)
+		return
+	}
 	http.Redirect(rw, req, "/view/"+title, http.StatusFound)
 }
 
-func renderTemplate(rw http.ResponseWriter, templateFileName string, p *Page) {
-	t, _ := template.ParseFiles(templateFileName)
-	t.Execute(rw, p)
+func renderTemplate(rw http.ResponseWriter, controllerName string, p *Page) {
+	err := templates.ExecuteTemplate(rw, controllerName+".txt", p)
+	if err != nil {
+		http.Error(rw, err.Error(), http.StatusInternalServerError)
+	}
 }
+
+var templates = template.Must(template.ParseFiles("edit.html", "view.html"))
 
 func main() {
 	http.HandleFunc("/save/", saveHandler)
